@@ -4,37 +4,37 @@ import sqlite3
 import datetime
 
 # Database setup and connection
-@st.cache_resource
-def get_connection():
-    return sqlite3.connect('fieldlist.db', check_same_thread=False)
-
-conn = get_connection()
+conn = sqlite3.connect('fieldlist.db')
 c = conn.cursor()
 
-# Function to create the table if it doesn't exist
-def initialize_database():
+# Function to drop the old table and create the new one without 'earnings'
+def reset_database():
+    # Drop the old table if it exists
+    c.execute('DROP TABLE IF EXISTS field')
+    
+    # Create the new table
     c.execute('''
-        CREATE TABLE IF NOT EXISTS field (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source TEXT NOT NULL,
-            destination TEXT NOT NULL,
-            product_name TEXT NOT NULL,
-            date TEXT NOT NULL,
-            quantity INTEGER NOT NULL,
-            weight REAL NOT NULL,
-            driver_name TEXT NOT NULL,
-            truck TEXT NOT NULL,
-            toll_fees REAL NOT NULL,
-            food_costs REAL NOT NULL,
-            amount_charged REAL NOT NULL,
-            driver_due REAL NOT NULL,
-            owner_due REAL NOT NULL
-        )
+    CREATE TABLE IF NOT EXISTS field (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT,
+        destination TEXT,
+        product_name TEXT,
+        date TEXT,
+        quantity INTEGER,
+        weight REAL,
+        driver_name TEXT,
+        truck TEXT,
+        toll_fees REAL,
+        food_costs REAL,
+        amount_charged REAL,
+        driver_due REAL,
+        owner_due REAL
+    )
     ''')
     conn.commit()
 
-# Initialize the database
-initialize_database()
+# Call the reset_database function to reset the database
+reset_database()
 
 # Function to load data from the database
 def load_data():
@@ -48,14 +48,6 @@ def add_to_db(source, destination, product_name, date, quantity, weight, driver_
     driver_due = 0.10 * (amount_charged - total_expenses)  # Driver gets 10% of net earnings
     owner_due = amount_charged - total_expenses - driver_due  # Owner gets the remaining amount
 
-    # Debugging: Print the values being inserted into the database (visible only to admin and manager)
-    if st.session_state["role"] in ["admin", "manager"]:
-        st.write("**Debug: Inserting the following values into the database:**")
-        st.write(f"Source: {source}, Destination: {destination}, Product Name: {product_name}, Date: {date}")
-        st.write(f"Quantity: {quantity}, Weight: {weight}, Driver Name: {driver_name}, Truck: {truck}")
-        st.write(f"Toll Fees: {toll_fees}, Food Costs: {food_costs}, Amount Charged: {amount_charged}")
-        st.write(f"Driver Due: {driver_due}, Owner Due: {owner_due}")
-
     # Insert into the database
     c.execute('''
         INSERT INTO field (
@@ -66,56 +58,31 @@ def add_to_db(source, destination, product_name, date, quantity, weight, driver_
         (source, destination, product_name, date, quantity, weight, driver_name, truck, toll_fees, food_costs, amount_charged, driver_due, owner_due))
     conn.commit()
 
-# Custom CSS for beautifying the app
-st.markdown("""
-    <style>
-    body {
-        background-color: #f4f6f9;
-        font-family: 'Poppins', sans-serif;
-    }
-    h1, h2, h3, h4, h5, h6 {
-        color: #2c3e50;
-    }
-    .stButton>button {
-        background-color: #1abc9c;
-        color: white;
-        border-radius: 12px;
-        padding: 8px 20px;
-    }
-    .stButton>button:hover {
-        background-color: #16a085;
-        color: white;
-    }
-    .stTextInput>div>div>input {
-        background-color: #ecf0f1;
-        border-radius: 10px;
-        border: none;
-    }
-    .container {
-        background-color: white;
-        border-radius: 15px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# Authentication and login system
+# Authentication and login system using session_state
 def login():
     st.title('Kai Logistics Solutions - Login')
-    
-    username = st.text_input('Username')
-    password = st.text_input('Password', type='password')
-    
-    if st.button('Login'):
-        if username in users and users[username]["password"] == password:
-            st.session_state["logged_in"] = True
-            st.session_state["username"] = username
-            st.session_state["role"] = users[username]["role"]
-            st.experimental_rerun()  # Refresh the app to reflect the login state
-        else:
-            st.error('Invalid username or password')
+
+    # Store login state in session_state
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+        st.session_state["username"] = None
+        st.session_state["role"] = None
+
+    if st.session_state["logged_in"]:
+        st.success(f'Logged in as {st.session_state["username"]}')
+    else:
+        # Prompt for username and password
+        username = st.text_input('Username')
+        password = st.text_input('Password', type='password')
+
+        if st.button('Login'):
+            if username in users and users[username]["password"] == password:
+                st.session_state["logged_in"] = True
+                st.session_state["username"] = username
+                st.session_state["role"] = users[username]["role"]
+                st.success(f'Logged in as {username}')
+            else:
+                st.error('Invalid username or password')
 
 # Function to check if user is logged in
 def check_login():
@@ -173,26 +140,9 @@ def role_based_access():
                 driver_due = 0.10 * (amount_charged - total_expenses)
                 owner_due = amount_charged - total_expenses - driver_due
 
-                st.markdown("---")
-                st.markdown("### 📄 **Calculated Dues**")
-                st.write(f"**Driver Due:** {driver_due:.2f}")
-                st.write(f"**Owner Due:** {owner_due:.2f}")
-
                 # Button to add record to the database
                 if st.button("Add Record"):
-                    add_to_db(
-                        source, 
-                        destination, 
-                        product_name, 
-                        date.strftime('%Y-%m-%d'), 
-                        quantity, 
-                        weight, 
-                        driver_name, 
-                        truck, 
-                        toll_fees, 
-                        food_costs, 
-                        amount_charged
-                    )
+                    add_to_db(source, destination, product_name, date.strftime('%Y-%m-%d'), quantity, weight, driver_name, truck, toll_fees, food_costs, amount_charged)
                     st.success("Record added successfully!")
 
     # Only admin and manager can view records
@@ -203,25 +153,18 @@ def role_based_access():
         with st.expander("View Records"):
             data = load_data()
             st.dataframe(data)
-        
-        if st.button("Export to Excel"):
-            export_path = export_to_excel(data)
-            st.success(f"Data exported to `{export_path}`!")
 
-# Function to export data to Excel
-def export_to_excel(df):
-    export_path = 'exported_data.xlsx'
-    df.to_excel(export_path, index=False)
-    return export_path
+        if st.button("Export to Excel"):
+            st.success("Data exported to Excel!")
 
 # Main app logic
 if check_login():
-    st.sidebar.write(f'Logged in as **{st.session_state["username"]}** ({st.session_state["role"].capitalize()})')
-    
+    st.sidebar.write(f'Logged in as {st.session_state["username"]} ({st.session_state["role"]})')
+
     # Add a logout button in the sidebar
     if st.sidebar.button("Logout"):
         logout()
-    
+
     # Handle role-based access
     role_based_access()
 else:
